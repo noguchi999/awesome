@@ -22,9 +22,9 @@ pd.set_option("display.width", 1000)
 @contextmanager
 def timer(title):
     t0 = time.time()
-    print(f'[{title}] start')
+    print(f"[{title}] start")
     yield
-    print("{} - done in {:.0f}s".format(title, time.time() - t0))
+    print(f"[{title}] done in {time.time() - t0:.0f} s")
 
 class FeatureEngineering(metaclass=ABCMeta):
     BASE_DIR = "."

@@ -67,7 +67,9 @@ class FeatureEngineering(metaclass=ABCMeta):
             for col in use_columns:
                 self.train = self.train.join(pd.get_dummies(self.train[col], prefix=col))
                 self.test = self.test.join(pd.get_dummies(self.test[col], prefix=col))
-    
+
+        return self
+
     def label_encode(self, use_columns=[], skip_columns=[]):
         use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
         for col in use_columns:

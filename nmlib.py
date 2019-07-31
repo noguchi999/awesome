@@ -84,6 +84,11 @@ class FeatureEngineering(metaclass=ABCMeta):
     
     def agg_transform(self, group, agg, prefix=""):
         prefix = f"{prefix}_" if prefix else ""
+        if prefix:
+            prefix += "_"
+        else:
+            prefix = f"{'_'.join(group)}_" if type(group) is list else group
+
         for k, v in agg.items():
             if type(v) is str:
                 self.train[f"{prefix}{k}_{v}"] = self.train.groupby(group)[k].transform(v)

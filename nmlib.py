@@ -99,6 +99,24 @@ class FeatureEngineering(metaclass=ABCMeta):
         
         return self
     
+    def agg_transform_ratio(self, group, agg, prefix=""):
+        if prefix:
+            prefix += "_"
+        else:
+            prefix = f"{'_'.join(group)}_" if type(group) is list else f"{group}_"
+        prefix = f"ratio_{prefix}"
+        
+        for k, v in agg.items():
+            if type(v) is str:
+                self.train[f"{prefix}{k}_{v}"] = self.train[k] / self.train.groupby(group)[k].transform(v)
+                self.test[f"{prefix}{k}_{v}"] = self.test[k] / self.test.groupby(group)[k].transform(v)
+            else:
+                for vv in v:
+                    self.train[f"{prefix}{k}_{vv}"] = self.train[k] / self.train.groupby(group)[k].transform(vv)
+                    self.test[f"{prefix}{k}_{vv}"] = self.test[k] / self.test.groupby(group)[k].transform(vv)
+        
+        return self
+    
     def replace_na(self, use_columns=[], skip_columns=[], fill_value=-1):
         use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
         for col in use_columns:

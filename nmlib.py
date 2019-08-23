@@ -168,8 +168,8 @@ class FeatureEngineering(metaclass=ABCMeta):
     def replace_na_mode(self, use_columns=[], skip_columns=[]):
         use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
         for col in use_columns:
-            self.train[col] = self.train[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.train[col].mode.values[0])
-            self.test[col] = self.test[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.test[col].mode.values[0])
+            self.train[col] = self.train[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.train[col].mode().values[0])
+            self.test[col] = self.test[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.test[col].mode().values[0])
 
         return self
     

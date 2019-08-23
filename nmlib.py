@@ -1,4 +1,4 @@
-import os, datetime, time, warnings
+import os, datetime, time, re, warnings
 
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
@@ -10,9 +10,15 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 from pandas.core.common import SettingWithCopyWarning
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+
+from sklearn import datasets, manifold, mixture, model_selection
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+
 from scipy.sparse import vstack, csr_matrix, save_npz, load_npz, hstack
+
 from gensim import corpora, models, similarities
+from gensim.models import Word2Vec
 
 warnings.simplefilter(action='ignore', category=SettingWithCopyWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -22,9 +28,9 @@ pd.set_option("display.width", 1000)
 @contextmanager
 def timer(title):
     t0 = time.time()
-    print(f"[{title}] start")
+    print(f'[{title}] start')
     yield
-    print(f"[{title}] done in {time.time() - t0:.0f} s")
+    print("{} - done in {:.0f}s".format(title, time.time() - t0))
 
 class FeatureEngineering(metaclass=ABCMeta):
     BASE_DIR = "."
@@ -67,7 +73,7 @@ class FeatureEngineering(metaclass=ABCMeta):
             for col in use_columns:
                 self.train = self.train.join(pd.get_dummies(self.train[col], prefix=col))
                 self.test = self.test.join(pd.get_dummies(self.test[col], prefix=col))
-
+    
         return self
 
     def label_encode(self, use_columns=[], skip_columns=[]):
@@ -80,6 +86,36 @@ class FeatureEngineering(metaclass=ABCMeta):
             self.train[col] = le.transform(self.train[col])+1
             self.test[col]  = le.transform(self.test[col])+1
     
+        return self
+    
+    def target_encode(self, col_name, target_name, min_samples_leaf=1, smoothing=1, noise_level=0):
+        trn_series = self.train[col_name]
+        tst_series = self.test[col_name]
+        target = self.train[target_name]
+        
+        assert len(trn_series) == len(target)
+
+        temp = pd.concat([trn_series, target], axis=1)
+        averages = temp.groupby(by=trn_series.name)[target.name].agg(["mean", "count"])
+        smoothing = 1 / (1 + np.exp(-(averages["count"] - min_samples_leaf) / smoothing))
+        prior = target.mean()
+        averages[target.name] = prior * (1 - smoothing) + averages["mean"] * smoothing
+        averages.drop(["mean", "count"], axis=1, inplace=True)
+        ft_trn_series = pd.merge(
+            trn_series.to_frame(trn_series.name),
+            averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
+            on=trn_series.name,
+            how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
+        ft_trn_series.index = trn_series.index 
+        ft_tst_series = pd.merge(
+            tst_series.to_frame(tst_series.name),
+            averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
+            on=tst_series.name,
+            how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
+        ft_tst_series.index = tst_series.index
+
+        self.train[f"te_smoothing_{col_name}"], self.test[f"te_smoothing_{col_name}"] = self.__add_noise(ft_trn_series, noise_level), self.__add_noise(ft_tst_series, noise_level)
+        
         return self
     
     def agg_transform(self, group, agg, prefix=""):
@@ -116,7 +152,7 @@ class FeatureEngineering(metaclass=ABCMeta):
                     self.test[f"{prefix}{k}_{vv}"] = self.test[k] / self.test.groupby(group)[k].transform(vv)
         
         return self
-    
+
     def replace_na(self, use_columns=[], skip_columns=[], fill_value=-1):
         use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
         for col in use_columns:
@@ -141,13 +177,81 @@ class FeatureEngineering(metaclass=ABCMeta):
             size = df.shape[0]
             topics = {i:[-1]*size for i in range(num_topics)}
             for i, row in enumerate(lda[bow_corpus]):
-                for j, (topic_num, prop_topic) in enumerate(row):
+                for (topic_num, prop_topic) in row:
                     topics[topic_num][i] = prop_topic
             
             for i in range(num_topics):
                 self.train[f"{col}_topic_{i}"] = topics[i][:self.train.shape[0]]
                 self.test[f"{col}_topic_{i}"] = topics[i][self.train.shape[0]:]
 
+        return self
+    
+    def calc_scdv_word2vec_score(self, text_col_name):
+        features_num = 20
+        min_word_count = 10
+        context = 5
+        downsampling = 1e-3
+        epoch_num = 10
+        clusters_num = 6
+        
+        df = pd.concat([self.train.loc[:, [text_col_name]], self.test.loc[:, [text_col_name]]])
+        df[text_col_name] = df[text_col_name].fillna("")
+        
+        corpus = [self.__analyzer_cat(text) for text in df[text_col_name]]
+        word2vecs = Word2Vec(sentences=corpus, iter=epoch_num, size=features_num, min_count=min_word_count, window=context, sample=downsampling)
+        word_vectors = word2vecs.wv.vectors
+        
+        gmm = mixture.GaussianMixture(n_components=clusters_num, covariance_type='tied', max_iter=50)
+        gmm.fit(word_vectors)
+        
+        tfidf_vectorizer = TfidfVectorizer(analyzer=self.__analyzer_cat, min_df=min_word_count)
+        tfidfs = tfidf_vectorizer.fit_transform(df[text_col_name])
+        
+        idf_dic = dict(zip(tfidf_vectorizer.get_feature_names(), tfidf_vectorizer._tfidf.idf_))
+        assign_dic = dict(zip(word2vecs.wv.index2word, gmm.predict(word_vectors)))
+        soft_assign_dic = dict(zip(word2vecs.wv.index2word, gmm.predict_proba(word_vectors)))
+        
+        word_topic_vecs = {}
+        for word in assign_dic:
+            word_topic_vecs[word] = np.zeros(features_num*clusters_num, dtype=np.float32)
+            for i in range(0, clusters_num):
+                try:
+                    word_topic_vecs[word][i*features_num:(i+1)*features_num] = word2vecs.wv[word]*soft_assign_dic[word][i]*idf_dic[word]
+                except:
+                    continue
+        
+        scdvs = np.zeros((len(df[text_col_name]), clusters_num*features_num), dtype=np.float32)
+
+        a_min = 0
+        a_max = 0
+
+        for i, text in enumerate(df[text_col_name]):
+            tmp = np.zeros(clusters_num*features_num, dtype=np.float32)
+            words = self.__analyzer_cat(text)
+            for word in words:
+                if word in word_topic_vecs:
+                    tmp += word_topic_vecs[word]
+            norm = np.sqrt(np.sum(tmp**2))
+            if norm > 0:
+                tmp /= norm
+            a_min += min(tmp)
+            a_max += max(tmp)
+            scdvs[i] = tmp
+
+        p = 0.04
+        a_min = a_min*1.0 / len(df[text_col_name])
+        a_max = a_max*1.0 / len(df[text_col_name])
+        thres = (abs(a_min)+abs(a_max)) / 2
+        thres *= p
+        scdvs[abs(scdvs) < thres] = 0
+        
+        tsne_scdv = manifold.TSNE(n_components=2).fit_transform(scdvs)
+        
+        self.train[f"scdv_{text_col_name}_x"] = tsne_scdv[:self.train.shape[0], 0]
+        self.train[f"scdv_{text_col_name}_y"] = tsne_scdv[:self.train.shape[0], 1]        
+        self.test[f"scdv_{text_col_name}_x"] = tsne_scdv[self.train.shape[0]:, 0]
+        self.test[f"scdv_{text_col_name}_y"] = tsne_scdv[self.train.shape[0]:, 1]
+        
         return self
     
     def columns_1d(self):
@@ -189,3 +293,29 @@ class FeatureEngineering(metaclass=ABCMeta):
             self.test.to_csv(f"{self.test_file_path}.csv", index=index)
         
         return self
+    
+    def __add_noise(self, series, noise_level):
+        return series * (1 + noise_level * np.random.randn(len(series)))
+
+    def __analyzer_nlp(self, text):
+        stop_words = ['i', 'a', 'an', 'the', 'to', 'and', 'or', 'if', 'is', 'are', 'am', 'it', 'this', 'that', 'of', 'from', 'in', 'on']
+        text = text.lower()
+        text = text.replace('\n', '')
+        text = text.replace('\t', '')
+        text = re.sub(re.compile(r'[!-\/:-@[-`{-~]'), ' ', text)
+        text = text.split(' ')
+
+        words = []
+        for word in text:
+            if (re.compile(r'^.*[0-9]+.*$').fullmatch(word) is not None):
+                continue
+            if word in stop_words:
+                continue
+            if len(word) < 2:
+                continue
+            words.append(word)
+
+        return words
+
+    def __analyzer_cat(self, text):
+        return text.split(' ')

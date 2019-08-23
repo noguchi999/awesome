@@ -165,6 +165,38 @@ class FeatureEngineering(metaclass=ABCMeta):
 
         return self
     
+    def replace_na_mode(self, use_columns=[], skip_columns=[]):
+        use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
+        for col in use_columns:
+            self.train[col] = self.train[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.train[col].mode.values[0])
+            self.test[col] = self.test[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.test[col].mode.values[0])
+
+        return self
+    
+    def replace_na_mean(self, use_columns=[], skip_columns=[]):
+        use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
+        for col in use_columns:
+            if isinstance(self.train[col].dtype, CategoricalDtype):
+                self.train[col] = self.train[col].cat.add_categories(str(fill_value)).replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(str(-1))
+                self.test[col] = self.test[col].cat.add_categories(str(fill_value)).replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(str(-1))
+            else:
+                self.train[col] = self.train[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.train[col].mean())
+                self.test[col] = self.test[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.test[col].mean())
+
+        return self
+
+    def replace_na_median(self, use_columns=[], skip_columns=[]):
+        use_columns = use_columns if use_columns else [c for c in self.train.columns if c not in skip_columns]
+        for col in use_columns:
+            if isinstance(self.train[col].dtype, CategoricalDtype):
+                self.train[col] = self.train[col].cat.add_categories(str(fill_value)).replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(str(-1))
+                self.test[col] = self.test[col].cat.add_categories(str(fill_value)).replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(str(-1))
+            else:
+                self.train[col] = self.train[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.train[col].median())
+                self.test[col] = self.test[col].replace(np.inf, np.nan).replace(-np.inf, np.nan).fillna(self.test[col].median())
+
+        return self
+    
     def calc_topic_score(self, topic_text_columns, num_topics=5):
         df = pd.concat([self.train.loc[:, topic_text_columns], self.test.loc[:, topic_text_columns]])
         

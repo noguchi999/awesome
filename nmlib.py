@@ -1,4 +1,4 @@
-import os, datetime, time, re, warnings
+import os, datetime, time, re, warnings, gc
 
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
@@ -70,9 +70,18 @@ class FeatureEngineering(metaclass=ABCMeta):
             save_npz(f"{self.train_file_path}.npz", train, compressed=True)
             save_npz(f"{self.test_file_path}.npz",  test,  compressed=True)
         else:
+            self.train["is_train_date"] = 1
+            self.test["is_train_date"]  = 0
+            df = pd.concat([self.train, self.test])
+            del self.train, self.test
+            gc.collect()
             for col in use_columns:
-                self.train = self.train.join(pd.get_dummies(self.train[col], prefix=col))
-                self.test = self.test.join(pd.get_dummies(self.test[col], prefix=col))
+                df = df.join(pd.get_dummies(df[col], prefix=col))
+            
+            self.train = df[df["is_train_date"]==1]
+            self.test = df[df["is_train_date"]==0]
+            self.train.drop(columns="is_train_date", inplace=True)
+            self.test.drop(columns="is_train_date", inplace=True)
     
         return self
 

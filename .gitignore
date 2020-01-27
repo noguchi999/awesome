@@ -1,2 +1,5 @@
 .ipynb_checkpoints/nmlib-checkpoint.ipynb
 .ipynb_checkpoints/nmlib-checkpoint.py
+.ipynb_checkpoints
+/notebook/feature_importance.csv
+/notebook/lgbm_importances.png

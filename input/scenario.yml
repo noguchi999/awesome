@@ -1,0 +1,11 @@
+target: Survived
+feature_engineering:
+  - transformation
+drop_features:
+  - PassengerId
+  - Name
+  - Ticket
+objective: binary
+boosting_type: gbdt
+metric: cross_entropy
+eval_file_path: ../input/submission.csv

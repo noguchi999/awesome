@@ -6,11 +6,13 @@ feature_engineering:
   - umap
   - kmean_features
   - topic_encoding
+  - min_max_scaling
+  - two_by_two
 drop_features:
   - PassengerId
   - Name
   - Ticket
-feature_selection:
+pending_feature_selection:
   - Cabin_Parch_mean
   - Sex
   - Fare_Parch_max

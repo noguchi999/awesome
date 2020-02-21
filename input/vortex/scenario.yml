@@ -1,0 +1,24 @@
+target: Survived
+feature_engineering:
+  - fill_numeric_na
+  - binning
+  - transformation
+  - umap
+  - kmean_features
+  - topic_encoding
+  - min_max_scaling
+  - two_by_two
+drop_features:
+  - PassengerId
+  - Name
+  - Ticket
+pending_feature_selection:
+  - Cabin_Parch_mean
+  - Sex
+  - Fare_Parch_max
+  - Age_bin
+  - Cabin_bin_Age_max
+objective: binary
+boosting_type: gbdt
+metric: cross_entropy
+eval_file_path: ../input/submission.csv
